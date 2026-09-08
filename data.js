@@ -5,7 +5,6 @@ module.exports = [
     shelfLifeDays: 5,
     daysInStock: 4,
     unitsInStock: 240,
-    // last 7 days of units sold, most recent last
     salesHistory: [38, 42, 35, 30, 28, 22, 18],
   },
   {

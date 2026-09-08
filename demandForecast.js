@@ -1,6 +1,6 @@
 function forecastDemand(salesHistory, daysAhead = 3) {
   const n = salesHistory.length;
-  const weights = salesHistory.map((_, i) => i + 1); // later days weighted more
+  const weights = salesHistory.map((_, i) => i + 1); 
   const weightSum = weights.reduce((a, b) => a + b, 0);
 
   const weightedAvgDaily =
