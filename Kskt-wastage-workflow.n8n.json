@@ -1,0 +1,140 @@
+{
+  "name": "KSKT - Wastage Risk Alert Workflow",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// In production, replace this with a Postgres/Sheets/API node\n// pulling live hub inventory + sales history from KSKT systems.\nconst data = [\n  { sku: 'Tomato (Local)', hub: 'Gurugram-Sec14', shelfLifeDays: 5, daysInStock: 4, unitsInStock: 240, salesHistory: [38,42,35,30,28,22,18] },\n  { sku: 'Spinach (Palak)', hub: 'Gurugram-Sec14', shelfLifeDays: 3, daysInStock: 1, unitsInStock: 90, salesHistory: [30,28,32,29,31,27,33] },\n  { sku: 'Potato', hub: 'Noida-Sec62', shelfLifeDays: 20, daysInStock: 6, unitsInStock: 500, salesHistory: [60,58,63,61,59,62,60] },\n  { sku: 'Green Chilli', hub: 'Noida-Sec62', shelfLifeDays: 6, daysInStock: 5, unitsInStock: 70, salesHistory: [15,14,12,13,9,8,6] },\n  { sku: 'Banana', hub: 'Gurugram-Sec14', shelfLifeDays: 6, daysInStock: 5, unitsInStock: 310, salesHistory: [40,39,41,38,35,30,25] }\n];\nreturn data.map(d => ({ json: d }));"
+      },
+      "id": "loadData1",
+      "name": "Load hub data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const results = [];\n\nfor (const item of $input.all()) {\n  const d = item.json;\n\n  // --- spoilage risk ---\n  const remainingDays = d.shelfLifeDays - d.daysInStock;\n  const lifeUsedFraction = d.daysInStock / d.shelfLifeDays;\n  let level;\n  if (remainingDays <= 0) level = 'expired';\n  else if (lifeUsedFraction >= 0.75) level = 'high';\n  else if (lifeUsedFraction >= 0.5) level = 'medium';\n  else level = 'low';\n\n  // --- demand forecast (weighted moving average + trend) ---\n  const sales = d.salesHistory;\n  const n = sales.length;\n  const weights = sales.map((_, i) => i + 1);\n  const weightSum = weights.reduce((a, b) => a + b, 0);\n  const weightedAvgDaily = sales.reduce((sum, u, i) => sum + u * weights[i], 0) / weightSum;\n  const daysAhead = 3;\n  const projectedDemand = weightedAvgDaily * daysAhead;\n  const firstHalf = sales.slice(0, Math.floor(n / 2));\n  const secondHalf = sales.slice(Math.floor(n / 2));\n  const avg = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;\n  const trendPct = ((avg(secondHalf) - avg(firstHalf)) / (avg(firstHalf) || 1)) * 100;\n  const trendDirection = trendPct < -10 ? 'falling' : trendPct > 10 ? 'rising' : 'flat';\n\n  // --- recommendation engine ---\n  const surplusUnits = d.unitsInStock - projectedDemand;\n  const surplusRatio = surplusUnits / d.unitsInStock;\n  let action = 'hold';\n  let urgency = 'none';\n  if (level === 'expired') { action = 'write-off-review'; urgency = 'immediate'; }\n  else if (level === 'high' && surplusRatio > 0.3) { action = trendDirection === 'falling' ? 'reallocate-to-higher-demand-hub' : 'discount-to-clear'; urgency = 'high'; }\n  else if (level === 'high') { action = 'monitor-closely'; urgency = 'medium'; }\n  else if (level === 'medium' && surplusRatio > 0.4) { action = 'flag-for-review'; urgency = 'low'; }\n\n  results.push({\n    json: {\n      ...d,\n      riskLevel: level,\n      remainingDays,\n      projectedDemand: Number(projectedDemand.toFixed(1)),\n      trendDirection,\n      action,\n      urgency,\n      surplusUnits: Math.round(surplusUnits)\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "scoreEngine1",
+      "name": "Score risk + forecast + recommend",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [640, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond1",
+              "leftValue": "={{$json.urgency}}",
+              "rightValue": "none",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ifNeedsAction1",
+      "name": "Needs action?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "content-type", "value": "application/json" },
+            { "name": "x-api-key", "value": "={{$env.ANTHROPIC_API_KEY}}" },
+            { "name": "anthropic-version", "value": "2023-06-01" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: \"claude-sonnet-4-6\", max_tokens: 120, messages: [{ role: \"user\", content: `Hub ops alert. Write one short, direct sentence (under 25 words) telling the ops team exactly what to do. No preamble.\\n\\nSKU: ${$json.sku} at ${$json.hub}\\nStock: ${$json.unitsInStock} units, ${$json.remainingDays} days shelf life left (${$json.riskLevel} risk)\\nForecast: ${$json.projectedDemand} units over next 3 days, trend ${$json.trendDirection}\\nAction code: ${$json.action}, surplus: ${$json.surplusUnits} units` }] }) }}",
+        "options": {}
+      },
+      "id": "llmExplain1",
+      "name": "Generate explanation (Claude)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1080, 220]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const text = $json.content?.[0]?.text?.trim() || 'No explanation returned.';\nreturn { json: { ...$json, alertMessage: text } };"
+      },
+      "id": "formatAlert1",
+      "name": "Format alert message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 220]
+    },
+    {
+      "parameters": {},
+      "id": "sendAlert1",
+      "name": "Send alert (swap for Email/Slack)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1520, 220]
+    },
+    {
+      "parameters": {},
+      "id": "noAction1",
+      "name": "No action needed",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [1080, 400]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{ "node": "Load hub data", "type": "main", "index": 0 }]]
+    },
+    "Load hub data": {
+      "main": [[{ "node": "Score risk + forecast + recommend", "type": "main", "index": 0 }]]
+    },
+    "Score risk + forecast + recommend": {
+      "main": [[{ "node": "Needs action?", "type": "main", "index": 0 }]]
+    },
+    "Needs action?": {
+      "main": [
+        [{ "node": "Generate explanation (Claude)", "type": "main", "index": 0 }],
+        [{ "node": "No action needed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generate explanation (Claude)": {
+      "main": [[{ "node": "Format alert message", "type": "main", "index": 0 }]]
+    },
+    "Format alert message": {
+      "main": [[{ "node": "Send alert (swap for Email/Slack)", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}
