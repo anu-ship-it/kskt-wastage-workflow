@@ -25,6 +25,27 @@ data.js               synthetic hub inventory + 7-day sales history
 → index.js             runs it all, prints alerts to console
 ```
 
+## n8n workflow (visual)
+
+This is the same pipeline as an importable n8n workflow
+(`kskt-wastage-workflow.n8n.json`) — trigger, load data, score, then branch
+on whether the item actually needs action:
+
+```mermaid
+flowchart TD
+    A[Manual Trigger] --> B[Load hub data]
+    B --> C["Score risk + forecast + recommend"]
+    C --> D{Needs action?}
+    D -- true --> E["Generate explanation (Gemini)"]
+    E --> F[Format alert message]
+    F --> G["Send alert (swap for Email/Slack)"]
+    D -- false --> H[No action needed]
+```
+
+Import the JSON into n8n via *Import from File* to run it directly — no
+code editing required, only the same `GEMINI_API_KEY` env var mentioned
+above.
+
 ## Run it
 
 ```
@@ -32,9 +53,10 @@ node index.js
 ```
 
 No dependencies, no API key required — the LLM layer falls back to a
-templated explanation if `ANTHROPIC_API_KEY` isn't set, so the pipeline is
+templated explanation if `GEMINI_API_KEY` isn't set, so the pipeline is
 fully inspectable without secrets. Set the env var to see it call a live
-model instead.
+Gemini model instead. (The n8n version of this workflow reads the same
+env var, `GEMINI_API_KEY`, inside the "Generate explanation" node.)
 
 ## What's real vs. illustrative
 
@@ -46,4 +68,3 @@ model instead.
 - The decision thresholds (0.5, 0.75 life-used fractions; 30%/40% surplus
   ratios) are placeholders meant to be tuned against your actual wastage
   patterns, not final numbers.
-  
