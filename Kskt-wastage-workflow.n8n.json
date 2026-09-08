@@ -63,22 +63,20 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.anthropic.com/v1/messages",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={{$env.AQ.Ab8RN6KjXyGbtBDCuZCF2kFNT3A-pZ3XeLVpHhZtm7D3mEdrIQ}}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "content-type", "value": "application/json" },
-            { "name": "x-api-key", "value": "={{$env.ANTHROPIC_API_KEY}}" },
-            { "name": "anthropic-version", "value": "2023-06-01" }
+            { "name": "content-type", "value": "application/json" }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ model: \"claude-sonnet-4-6\", max_tokens: 120, messages: [{ role: \"user\", content: `Hub ops alert. Write one short, direct sentence (under 25 words) telling the ops team exactly what to do. No preamble.\\n\\nSKU: ${$json.sku} at ${$json.hub}\\nStock: ${$json.unitsInStock} units, ${$json.remainingDays} days shelf life left (${$json.riskLevel} risk)\\nForecast: ${$json.projectedDemand} units over next 3 days, trend ${$json.trendDirection}\\nAction code: ${$json.action}, surplus: ${$json.surplusUnits} units` }] }) }}",
+        "jsonBody": "={{ JSON.stringify({ contents: [{ parts: [{ text: `Hub ops alert. Write one short, direct sentence (under 25 words) telling the ops team exactly what to do. No preamble.\\n\\nSKU: ${$json.sku} at ${$json.hub}\\nStock: ${$json.unitsInStock} units, ${$json.remainingDays} days shelf life left (${$json.riskLevel} risk)\\nForecast: ${$json.projectedDemand} units over next 3 days, trend ${$json.trendDirection}\\nAction code: ${$json.action}, surplus: ${$json.surplusUnits} units` }] }], generationConfig: { maxOutputTokens: 120 } }) }}",
         "options": {}
       },
       "id": "llmExplain1",
-      "name": "Generate explanation (Claude)",
+      "name": "Generate explanation (Gemini)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [1080, 220]
@@ -86,7 +84,7 @@
     {
       "parameters": {
         "mode": "runOnceForEachItem",
-        "jsCode": "const text = $json.content?.[0]?.text?.trim() || 'No explanation returned.';\nreturn { json: { ...$json, alertMessage: text } };"
+        "jsCode": "const text = $json.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || 'No explanation returned.';\nreturn { json: { ...$json, alertMessage: text } };"
       },
       "id": "formatAlert1",
       "name": "Format alert message",
@@ -123,11 +121,11 @@
     },
     "Needs action?": {
       "main": [
-        [{ "node": "Generate explanation (Claude)", "type": "main", "index": 0 }],
+        [{ "node": "Generate explanation (Gemini)", "type": "main", "index": 0 }],
         [{ "node": "No action needed", "type": "main", "index": 0 }]
       ]
     },
-    "Generate explanation (Claude)": {
+    "Generate explanation (Gemini)": {
       "main": [[{ "node": "Format alert message", "type": "main", "index": 0 }]]
     },
     "Format alert message": {
