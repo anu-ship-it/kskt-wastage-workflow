@@ -1,25 +1,25 @@
+
+const GEMINI_MODEL = "gemini-2.0-flash";
+
 async function explain(item, risk, forecast, rec) {
   const prompt = buildPrompt(item, risk, forecast, rec);
 
-  if (process.env.ANTHROPIC_API_KEY) {
+  if (process.env.GEMINI_API_KEY) {
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+      const res = await fetch(url, {
         method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": process.env.ANTHROPIC_API_KEY,
-          "anthropic-version": "2023-06-01",
-        },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 120,
-          messages: [{ role: "user", content: prompt }],
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { maxOutputTokens: 120 },
         }),
       });
       const data = await res.json();
-      const text = data?.content?.find((b) => b.type === "text")?.text;
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
       if (text) return text.trim();
     } catch (err) {
+      console.error("Error generating LLM explanation:", err);
     }
   }
 
